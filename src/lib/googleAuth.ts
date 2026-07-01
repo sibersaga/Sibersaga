@@ -1,6 +1,14 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User } from 'firebase/auth';
-import firebaseConfig from '../../firebase-applet-config.json';
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyD_uhALaT-XKKLkUs1FJokM1FJStcjbftQ",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "banded-axiom-kptg6.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "banded-axiom-kptg6",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "banded-axiom-kptg6.firebasestorage.app",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "360505437073",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:360505437073:web:dd5ee81a4986bb64fa4830",
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || ""
+};
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);

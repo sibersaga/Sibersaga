@@ -1,15 +1,54 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { SectionTitle } from '../components/SectionTitle';
 import { GalleryCard } from '../components/Cards';
 import { galeriSekolah, GalleryItem } from '../data/schoolData';
 import { Eye, X, Layers, Image as ImageIcon, Video, Compass } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
 export const Galeri: React.FC = () => {
   const [activeCategory, setActiveCategory] = useState<'Semua' | 'Kegiatan' | 'Fasilitas' | 'Prestasi' | 'Umum'>('Semua');
   const [activeType, setActiveType] = useState<'Semua' | 'foto' | 'video'>('Semua');
   const [selectedItem, setSelectedItem] = useState<GalleryItem | null>(null);
+  const [dbItems, setDbItems] = useState<GalleryItem[]>([]);
 
-  const filteredItems = galeriSekolah.filter((item) => {
+  useEffect(() => {
+    const fetchGallery = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('drive_files')
+          .select('*')
+          .order('created_at', { ascending: false });
+        
+        if (error) throw error;
+        
+        if (data) {
+          const mappedItems: GalleryItem[] = data.map((item: any) => {
+            const isVideo = item.mime_type?.startsWith('video');
+            const validCategories = ['Kegiatan', 'Fasilitas', 'Prestasi', 'Umum'];
+            const category = validCategories.includes(item.category) ? item.category : 'Umum';
+            
+            return {
+              id: item.drive_file_id || String(item.id),
+              title: item.title || 'Tanpa Judul',
+              type: isVideo ? 'video' : 'foto',
+              category: category as any,
+              url: item.drive_url,
+              caption: item.subcategory || 'Diunggah dari Admin',
+            };
+          });
+          setDbItems(mappedItems);
+        }
+      } catch (err) {
+        console.error('Error fetching gallery from Supabase:', err);
+      }
+    };
+
+    fetchGallery();
+  }, []);
+
+  const allItems = [...dbItems, ...galeriSekolah];
+
+  const filteredItems = allItems.filter((item) => {
     const matchCategory = activeCategory === 'Semua' || item.category === activeCategory;
     const matchType = activeType === 'Semua' || item.type === activeType;
     return matchCategory && matchType;

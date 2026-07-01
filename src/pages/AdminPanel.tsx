@@ -88,6 +88,8 @@ export const AdminPanel: React.FC = () => {
   const [newsContent, setNewsContent] = useState('');
   const [newsImage, setNewsImage] = useState('');
   const [newsAuthor, setNewsAuthor] = useState('');
+  const [newsFile, setNewsFile] = useState<File | null>(null);
+  const [uploadingNews, setUploadingNews] = useState(false);
 
   // --- 3. AGENDA FORM STATES ---
   const [agendaTitle, setAgendaTitle] = useState('');
@@ -99,6 +101,8 @@ export const AdminPanel: React.FC = () => {
   const [testiRole, setTestiRole] = useState('');
   const [testiQuote, setTestiQuote] = useState('');
   const [testiImage, setTestiImage] = useState('');
+  const [testiFile, setTestiFile] = useState<File | null>(null);
+  const [uploadingTesti, setUploadingTesti] = useState(false);
 
   // --- 5. KEGIATAN FORM STATES ---
   const [kegTitle, setKegTitle] = useState('');
@@ -106,6 +110,8 @@ export const AdminPanel: React.FC = () => {
   const [kegDesc, setKegDesc] = useState('');
   const [kegSchedule, setKegSchedule] = useState('');
   const [kegImage, setKegImage] = useState('');
+  const [kegFile, setKegFile] = useState<File | null>(null);
+  const [uploadingKeg, setUploadingKeg] = useState(false);
 
   // --- 6. GALERI FORM STATES ---
   const [galTitle, setGalTitle] = useState('');
@@ -207,6 +213,108 @@ export const AdminPanel: React.FC = () => {
       alert('Gagal mengunggah dokumen.');
     } finally {
       setUploadingDokumen(false);
+    }
+  };
+
+  const handleUploadBerita = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingNews(true);
+    try {
+      const base64 = await toBase64(file);
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileName: file.name,
+          mimeType: file.type,
+          base64Data: base64.split(',')[1],
+          category: 'foto',
+          subcategory: 'berita',
+          title: newsTitle || file.name,
+          size: `${Math.round(file.size / 1024)} KB`,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.driveUrl) {
+        setNewsImage(data.driveUrl);
+        showToast('Gambar berita berhasil diunggah!');
+      } else {
+        alert('Gagal mengunggah: ' + (data.error || 'Unknown'));
+      }
+    } catch (err) {
+      console.error('Upload error:', err);
+      alert('Gagal mengunggah gambar.');
+    } finally {
+      setUploadingNews(false);
+    }
+  };
+
+  const handleUploadKegiatan = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingKeg(true);
+    try {
+      const base64 = await toBase64(file);
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileName: file.name,
+          mimeType: file.type,
+          base64Data: base64.split(',')[1],
+          category: 'foto',
+          subcategory: 'kegiatan',
+          title: kegTitle || file.name,
+          size: `${Math.round(file.size / 1024)} KB`,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.driveUrl) {
+        setKegImage(data.driveUrl);
+        showToast('Gambar kegiatan berhasil diunggah!');
+      } else {
+        alert('Gagal mengunggah: ' + (data.error || 'Unknown'));
+      }
+    } catch (err) {
+      console.error('Upload error:', err);
+      alert('Gagal mengunggah gambar.');
+    } finally {
+      setUploadingKeg(false);
+    }
+  };
+
+  const handleUploadTestimoni = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingTesti(true);
+    try {
+      const base64 = await toBase64(file);
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileName: file.name,
+          mimeType: file.type,
+          base64Data: base64.split(',')[1],
+          category: 'foto',
+          subcategory: 'testimoni',
+          title: testiName || file.name,
+          size: `${Math.round(file.size / 1024)} KB`,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.driveUrl) {
+        setTestiImage(data.driveUrl);
+        showToast('Foto testimoni berhasil diunggah!');
+      } else {
+        alert('Gagal mengunggah: ' + (data.error || 'Unknown'));
+      }
+    } catch (err) {
+      console.error('Upload error:', err);
+      alert('Gagal mengunggah gambar.');
+    } finally {
+      setUploadingTesti(false);
     }
   };
 
@@ -1030,6 +1138,17 @@ export const AdminPanel: React.FC = () => {
                           placeholder="Tinggalkan kosong untuk gambar default sekolah"
                           className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-primary-500 font-mono"
                         />
+                        <div className="flex items-center gap-2 mt-2">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 font-mono">ATAU UNGGAH GAMBAR:</label>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleUploadBerita}
+                            className="text-xs text-slate-600 font-semibold"
+                            disabled={uploadingNews}
+                          />
+                          {uploadingNews && <span className="text-xs text-orange-600 font-bold animate-pulse">Mengunggah...</span>}
+                        </div>
                       </div>
 
                       <div className="sm:col-span-2 space-y-1.5">
@@ -1323,9 +1442,20 @@ export const AdminPanel: React.FC = () => {
                           type="url"
                           value={testiImage}
                           onChange={(e) => setTestiImage(e.target.value)}
-                          placeholder="Contoh: https://images.unsplash.com/... (atau kosongkan untuk default)"
+                          placeholder="Con Misal: https://images.unsplash.com/... (atau kosongkan untuk default)"
                           className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-primary-500 font-mono"
                         />
+                        <div className="flex items-center gap-2 mt-2">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 font-mono">ATAU UNGGAH FOTO:</label>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleUploadTestimoni}
+                            className="text-xs text-slate-600 font-semibold"
+                            disabled={uploadingTesti}
+                          />
+                          {uploadingTesti && <span className="text-xs text-orange-600 font-bold animate-pulse">Mengunggah...</span>}
+                        </div>
                       </div>
 
                       <div className="sm:col-span-2 space-y-1.5">
@@ -1483,6 +1613,17 @@ export const AdminPanel: React.FC = () => {
                           placeholder="Tinggalkan kosong untuk memakai gambar default kurikulum"
                           className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-primary-500 font-mono"
                         />
+                        <div className="flex items-center gap-2 mt-2">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 font-mono">ATAU UNGGAH GAMBAR:</label>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleUploadKegiatan}
+                            className="text-xs text-slate-600 font-semibold"
+                            disabled={uploadingKeg}
+                          />
+                          {uploadingKeg && <span className="text-xs text-orange-600 font-bold animate-pulse">Mengunggah...</span>}
+                        </div>
                       </div>
 
                       <div className="sm:col-span-2 space-y-1.5">

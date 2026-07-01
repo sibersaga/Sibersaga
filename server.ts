@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
-dotenv.config();
+dotenv.config({ path: '.env.local', override: true });
+dotenv.config({ override: true });
 
 import express from 'express';
 import path from 'path';
@@ -7,7 +8,6 @@ import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { readConfig, writeConfig, parseFormEntryIds, findEntryKey } from './src/lib/formHelper';
 import { GoogleGenAI } from '@google/genai';
-import { google } from 'googleapis';
 import { createClient } from '@supabase/supabase-js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -31,37 +31,18 @@ if (supabaseUrl && supabaseAnonKey) {
   supabase = createClient(supabaseUrl, supabaseAnonKey);
 }
 
-// Google Service Account
+// Google Service Account (tidak dipakai untuk storage lagi, hanya untuk integrasi lain jika perlu)
 const serviceAccountKey = process.env.GOOGLE_SERVICE_ACCOUNT_JSON
   ? JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON)
   : null;
-
-let driveClient: ReturnType<typeof google.drive> | null = null;
-let sheetsClient: ReturnType<typeof google.sheets> | null = null;
-
-if (serviceAccountKey) {
-  const auth = new google.auth.GoogleAuth({
-    credentials: serviceAccountKey,
-    scopes: [
-      'https://www.googleapis.com/auth/drive',
-      'https://www.googleapis.com/auth/spreadsheets',
-      'https://www.googleapis.com/auth/forms.body',
-      'https://www.googleapis.com/auth/forms.responses.readonly',
-      'https://www.googleapis.com/auth/documents',
-      'https://www.googleapis.com/auth/documents.readonly'
-    ]
-  });
-
-  driveClient = google.drive({ version: 'v3', auth });
-  sheetsClient = google.sheets({ version: 'v4', auth });
-}
 
 const DRIVE_ROOT_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID || '';
 const INVENTORY_SPREADSHEET_ID = process.env.GOOGLE_SHEETS_SPREADSHEET_ID || '';
 
 async function startServer() {
   const app = express();
-  const PORT = process.env.PORT || 3000;
+  const DEFAULT_PORT = Number(process.env.PORT ?? 3000);
+  const PORTS_TO_TRY = [DEFAULT_PORT, 3001, 3002, 3003];
 
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
@@ -93,11 +74,10 @@ async function startServer() {
     }
   });
 
-  // Upload file to Google Drive
   app.post('/api/upload', async (req, res) => {
     try {
-      if (!driveClient) {
-        return res.status(500).json({ error: 'Google Drive service account belum dikonfigurasi.' });
+      if (!supabase) {
+        return res.status(500).json({ error: 'Supabase belum dikonfigurasi.' });
       }
 
       const { fileName, mimeType, base64Data, category, subcategory, title, size } = req.body;
@@ -107,63 +87,35 @@ async function startServer() {
       }
 
       const buffer = Buffer.from(base64Data, 'base64');
+      const filePath = `${category || 'other'}/${Date.now()}_${fileName}`;
 
-      // Determine folder path
-      let parentId = DRIVE_ROOT_FOLDER_ID;
-      const folderMap: Record<string, string> = {
-        'foto': 'galeri-foto',
-        'video': 'galeri-video',
-        'pdf': 'dokumen-pdf',
-      };
+      const { error: uploadError } = await supabase.storage
+        .from('uploads')
+        .upload(filePath, buffer, {
+          contentType: mimeType,
+          upsert: true,
+        });
 
-      // Try to find existing subfolder by name, or use root
-      if (category && DRIVE_ROOT_FOLDER_ID) {
-        const folderName = folderMap[category];
-        if (folderName) {
-          const query = `name='${folderName}' and '${DRIVE_ROOT_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder'`;
-          const listRes = await driveClient.files.list({ q: query, fields: 'files(id, name)' });
-          const folder = listRes.data.files?.[0];
-          if (folder) {
-            parentId = folder.id;
-          }
-        }
+      if (uploadError) {
+        console.error('Supabase upload error:', {
+          message: uploadError.message,
+          status: uploadError.statusCode,
+          stack: uploadError.stack,
+        });
+        return res.status(500).json({ error: 'Gagal mengunggah file ke Supabase Storage.' });
       }
 
-      const fileMetadata: any = {
-        name: fileName,
-        parents: parentId ? [parentId] : undefined,
-      };
+      const { data: publicData } = supabase.storage
+        .from('uploads')
+        .getPublicUrl(filePath);
 
-      const media = {
-        mimeType,
-        body: Buffer.from(buffer),
-      };
+      const driveUrl = publicData.publicUrl;
 
-      const uploadRes = await driveClient.files.create({
-        requestBody: fileMetadata,
-        media,
-        fields: 'id, name, webViewLink, webContentLink, size, mimeType',
-      });
-
-      const uploadedFile = uploadRes.data;
-
-      // Make file accessible via link (if needed, set to anyone with link can read)
-      await driveClient.permissions.create({
-        fileId: uploadedFile.id!,
-        requestBody: {
-          role: 'reader',
-          type: 'anyone',
-        },
-      });
-
-      const driveUrl = uploadedFile.webViewLink || uploadedFile.webContentLink || '';
-
-      // Save metadata to Supabase
       if (supabase && process.env.SUPABASE_URL) {
         const { error: dbError } = await (supabase as any)
           .from('drive_files')
           .insert({
-            drive_file_id: uploadedFile.id,
+            drive_file_id: filePath,
             drive_url: driveUrl,
             title: title || fileName,
             category: category || 'other',
@@ -178,67 +130,42 @@ async function startServer() {
         }
       }
 
-      // Append row to Google Sheets inventory
-      if (sheetsClient && INVENTORY_SPREADSHEET_ID) {
-        try {
-          await sheetsClient.spreadsheets.values.append({
-            spreadsheetId: INVENTORY_SPREADSHEET_ID,
-            range: 'Inventory!A:H',
-            valueInputOption: 'USER_ENTERED',
-            requestBody: {
-              values: [[
-                new Date().toISOString(),
-                uploadedFile.id,
-                driveUrl,
-                title || fileName,
-                category || 'other',
-                subcategory || '',
-                size || `${Math.round(buffer.length / 1024)} KB`,
-                'admin'
-              ]]
-            }
-          });
-        } catch (sheetError) {
-          console.error('Sheets append error:', sheetError);
-        }
-      }
-
       res.json({
-        id: uploadedFile.id,
-        name: uploadedFile.name,
+        id: filePath,
+        name: fileName,
         driveUrl,
-        size: uploadedFile.size,
-        mimeType: uploadedFile.mimeType,
+        size: `${Math.round(buffer.length / 1024)} KB`,
+        mimeType,
       });
     } catch (err: any) {
       console.error('Upload error:', err);
-      res.status(500).json({ error: err.message || 'Gagal mengunggah file.' });
+      res.status(500).json({ error: err.message || 'Gagal mengunggak file.' });
     }
   });
 
-  // Delete file from Google Drive
-  app.delete('/api/files/:driveFileId', async (req, res) => {
+  app.delete('/api/files/:fileId', async (req, res) => {
     try {
-      if (!driveClient) {
-        return res.status(500).json({ error: 'Google Drive service account belum dikonfigurasi.' });
+      if (!supabase) {
+        return res.status(500).json({ error: 'Supabase belum dikonfigurasi.' });
       }
 
-      const { driveFileId } = req.params;
+      const { fileId } = req.params;
 
-      await driveClient.files.delete({
-        fileId: driveFileId,
-      });
+      const { error: storageError } = await supabase.storage
+        .from('uploads')
+        .remove([fileId]);
 
-      // Soft delete from Supabase
-      if (supabase && process.env.SUPABASE_URL) {
-        const { error: dbError } = await (supabase as any)
-          .from('drive_files')
-          .update({ category: 'deleted' })
-          .eq('drive_file_id', driveFileId);
+      if (storageError) {
+        console.error('Supabase storage delete error:', storageError);
+      }
 
-        if (dbError) {
-          console.error('Supabase update error:', dbError);
-        }
+      const { error: dbError } = await (supabase as any)
+        .from('drive_files')
+        .update({ category: 'deleted' })
+        .eq('drive_file_id', fileId);
+
+      if (dbError) {
+        console.error('Supabase update error:', dbError);
       }
 
       res.json({ success: true });
@@ -374,9 +301,28 @@ async function startServer() {
     });
   }
 
-  app.listen(Number(PORT), '0.0.0.0', () => {
-    console.log(`Server running on port ${PORT}`);
-  });
+  const tryListen = async (port: number) => {
+    await new Promise<void>((resolve, reject) => {
+      const server = app.listen(port, '0.0.0.0', () => {
+        console.log(`Server running on port ${port}`);
+        resolve();
+      });
+      server.on('error', reject);
+    });
+  };
+
+  for (const port of PORTS_TO_TRY) {
+    try {
+      await tryListen(port);
+      break;
+    } catch (err: any) {
+      if (err?.code === 'EADDRINUSE') {
+        console.warn(`Port ${port} already in use, trying next port...`);
+        continue;
+      }
+      throw err;
+    }
+  }
 }
 
 startServer();

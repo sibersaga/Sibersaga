@@ -17,13 +17,13 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
 
-    setTimeout(() => {
-      const success = login(username, password);
+    try {
+      const success = await login(username, password);
       setIsLoading(false);
       if (success) {
         setUsername('');
@@ -32,7 +32,10 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
       } else {
         setError('Kombinasi nama pengguna atau sandi admin tidak tepat!');
       }
-    }, 600); // realistic premium feeling delay
+    } catch (err) {
+      setIsLoading(false);
+      setError('Terjadi kesalahan saat login.');
+    }
   };
 
   return (

@@ -35,7 +35,7 @@ const defaultAgenda: AgendaItem[] = [
 interface AdminContextType {
   isAdmin: boolean;
   isEditMode: boolean;
-  login: (username: string, password: string) => boolean;
+  login: (username: string, password: string) => Promise<boolean>;
   logout: () => void;
   setEditMode: (mode: boolean) => void;
 
@@ -228,15 +228,88 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     loadAll();
   }, []);
 
-  const login = (username: string, password: string): boolean => {
+  const login = async (username: string, password: string): Promise<boolean> => {
     if (username.toLowerCase() === 'admin' && password === 'admin3purwosari') {
       setIsAdmin(true);
       localStorage.setItem('sdn3_admin_logged', 'true');
       setIsEditMode(true);
       localStorage.setItem('sdn3_edit_mode', 'true');
+
+      // Migrasi data localStorage -> Supabase
+      await migrateLocalStorageToSupabase();
+
       return true;
     }
     return false;
+  };
+
+  const migrateLocalStorageToSupabase = async () => {
+    if (!supabase || !process.env.VITE_SUPABASE_URL) return;
+
+    const keysToMigrate = Object.values(contentTypes);
+    let hasMigrated = false;
+
+    for (const key of keysToMigrate) {
+      const stored = localStorage.getItem(key);
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          await saveToSupabase(key, parsed);
+          localStorage.removeItem(key);
+          hasMigrated = true;
+          console.log(`[AdminContext] Migrated ${key} from localStorage to Supabase`);
+        } catch (e) {
+          console.error(`[AdminContext] Migration failed for ${key}:`, e);
+        }
+      }
+    }
+
+    if (hasMigrated) {
+      // Reload semua data dari Supabase setelah migrasi berhasil
+      const [
+        schoolConfigData,
+        profilSekolahData,
+        kegiatanSekolahData,
+        prestasiSekolahData,
+        beritaSekolahData,
+        galeriSekolahData,
+        inovasiSekolahData,
+        dokumenTransparansiData,
+        testimonialSekolahData,
+        spmbConfigData,
+        statistikSekolahData,
+        agendaSekolahData,
+        studentDemographicsData,
+      ] = await Promise.all([
+        fetchFromSupabase(contentTypes.schoolConfig, defaultData.schoolConfig),
+        fetchFromSupabase(contentTypes.profilSekolah, defaultData.profilSekolah),
+        fetchFromSupabase(contentTypes.kegiatanSekolah, defaultData.kegiatanSekolah),
+        fetchFromSupabase(contentTypes.prestasiSekolah, defaultData.prestasiSekolah),
+        fetchFromSupabase(contentTypes.beritaSekolah, defaultData.beritaSekolah),
+        fetchFromSupabase(contentTypes.galeriSekolah, defaultData.galeriSekolah),
+        fetchFromSupabase(contentTypes.inovasiSekolah, defaultData.inovasiSekolah),
+        fetchFromSupabase(contentTypes.dokumenTransparansi, defaultData.dokumenTransparansi),
+        fetchFromSupabase(contentTypes.testimonialSekolah, defaultData.testimonialSekolah),
+        fetchFromSupabase(contentTypes.spmbConfig, defaultData.spmbConfig),
+        fetchFromSupabase(contentTypes.statistikSekolah, defaultStatistik),
+        fetchFromSupabase(contentTypes.agendaSekolah, defaultAgenda),
+        fetchFromSupabase(contentTypes.studentDemographics, defaultData.studentDemographics),
+      ]);
+
+      setSchoolConfigState(schoolConfigData);
+      setProfilSekolahState(profilSekolahData);
+      setKegiatanSekolahState(kegiatanSekolahData);
+      setPrestasiSekolahState(prestasiSekolahData);
+      setBeritaSekolahState(beritaSekolahData);
+      setGaleriSekolahState(galeriSekolahData);
+      setInovasiSekolahState(inovasiSekolahData);
+      setDokumenTransparansiState(dokumenTransparansiData);
+      setTestimonialSekolahState(testimonialSekolahData);
+      setSpmbConfigState(spmbConfigData);
+      setStatistikSekolahState(statistikSekolahData);
+      setAgendaSekolahState(agendaSekolahData);
+      setStudentDemographicsState(studentDemographicsData);
+    }
   };
 
   const logout = () => {
